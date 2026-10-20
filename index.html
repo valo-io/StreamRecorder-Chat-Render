@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>VOD Chat Replay</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top">
+    <input id="vodPath" placeholder="Local VOD path, e.g. D:\VODs\stream.mp4">
+    <input id="jsonPath" placeholder="Local chat JSON path, e.g. D:\VODs\stream_chat.json">
+    <input id="channelUrl" placeholder="https://www.twitch.tv/channel">
+    <button id="loadBtn">Load</button>
+    <span id="status"></span>
+  </header>
+  <main>
+    <div id="playerWrap">
+      <video id="video" controls></video>
+    </div>
+    <aside id="sidebar">
+      <div id="chatHeader">Chat replay</div>
+      <div id="chat"></div>
+    </aside>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

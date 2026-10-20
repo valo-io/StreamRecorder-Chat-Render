@@ -1,0 +1,120 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: system-ui, Arial, sans-serif;
+  background: #111;
+  color: #eee;
+}
+
+body { display: flex; flex-direction: column; }
+
+#top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  background: #1f1f23;
+}
+
+#top input {
+  flex: 1;
+  min-width: 180px;
+  padding: 5px 8px;
+}
+
+#top input#channelUrl { flex: 0.7; }
+
+#top button {
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+#status {
+  width: 100%;
+  font-size: 12px;
+  color: #aaa;
+}
+
+#status.err { color: #ff7b7b; }
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#playerWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  background: #000;
+}
+
+#video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+#sidebar {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  color: #000;
+  border-left: 1px solid #ccc;
+}
+
+#chatHeader {
+  padding: 8px 10px;
+  font-weight: bold;
+  background: #f7f7f8;
+  border-bottom: 1px solid #ddd;
+}
+
+/* newest message sits at the bottom, older ones are pushed up and clipped */
+#chat {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 6px 10px;
+}
+
+.msg {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 2px 0;
+  word-wrap: break-word;
+}
+
+.name { font-weight: bold; }
+
+.emote {
+  height: 28px;
+  vertical-align: middle;
+}
+
+/* emote box: zero-width emotes are overlaid on the previous emote */
+.emote-box {
+  position: relative;
+  display: inline-block;
+  height: 28px;
+  vertical-align: middle;
+}
+
+.emote-box .emote { height: 28px; }
+
+.emote-box .emote.zw {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
