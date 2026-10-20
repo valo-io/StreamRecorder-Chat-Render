@@ -118,3 +118,16 @@ main {
   left: 0;
   top: 0;
 }
+
+.offset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.offset input {
+  width: 9.5em;
+  padding: 5px 8px;
+}

@@ -299,9 +299,15 @@
     while (chat.childElementCount > MAX_NODES) chat.firstElementChild.remove();
   }
 
+  // positive offset delays the chat, negative shows it earlier
+  function getOffsetMs() {
+    const v = parseInt($('offsetMs').value, 10);
+    return Number.isFinite(v) ? v : 0;
+  }
+
   function sync(force = false) {
     if (messages.length === 0) return;
-    const t = video.currentTime * 1000;
+    const t = video.currentTime * 1000 - getOffsetMs();
     const backward = t < lastSyncT;
     const jumped = Math.abs(t - lastSyncT) > 3000;
 
@@ -405,6 +411,7 @@
   // ---------- init ----------
 
   $('loadBtn').addEventListener('click', load);
+  $('offsetMs').addEventListener('input', () => sync(true));
   for (const id of ['vodPath', 'jsonPath', 'channelUrl']) {
     $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
   }
