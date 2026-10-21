@@ -1,6 +1,13 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const video = $('video');
+  const player = new Plyr(video, {
+    seekTime: 5,                          // rewind / fast-forward buttons and arrow keys jump 5s
+    iconUrl: 'vendor/plyr/plyr.svg',
+    keyboard: { focused: true, global: true }, // space toggles play/pause
+    controls: ['play-large', 'play', 'rewind', 'fast-forward', 'progress',
+               'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+  });
   const chat = $('chat');
   const statusEl = $('status');
 
@@ -137,18 +144,21 @@
 
   // Twitch IRC "emotes" tag: "emotesv2_<id>:0-6,8-14/<id2>:20-25"
   // Indexes are Unicode code points, so we walk code points, not UTF-16 units.
+  // Twitch CDN variants tried in order when an emote image is missing in one of them
+  const TWITCH_EMOTE_VARIANTS = ['default/light/2.0', 'default/dark/2.0', 'animated/light/2.0', 'animated/dark/2.0'];
+
   function parseEmoteTag(tag) {
-    const map = new Map(); // startIndex -> { end, url }
+    const map = new Map(); // startIndex -> { end, urls }
     if (!tag) return map;
     for (const part of tag.split('/')) {
       const colon = part.indexOf(':');
       if (colon < 0) continue;
       const id = part.slice(0, colon).replace(/^emotesv2_/, '');
-      const url = `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/light/2.0`;
+      const urls = TWITCH_EMOTE_VARIANTS.map((v) => `https://static-cdn.jtvnw.net/emoticons/v2/${id}/${v}`);
       for (const range of part.slice(colon + 1).split(',')) {
         const [s, e] = range.split('-').map(Number);
         if (Number.isNaN(s) || Number.isNaN(e)) continue;
-        map.set(s, { end: e, url });
+        map.set(s, { end: e, urls });
       }
     }
     return map;
@@ -164,7 +174,7 @@
       const hit = emoteMap.get(i);
       if (hit) {
         flush();
-        segs.push({ type: 'emote', url: hit.url, code: cps.slice(i, hit.end + 1).join(''), zw: false });
+        segs.push({ type: 'emote', urls: hit.urls, code: cps.slice(i, hit.end + 1).join(''), zw: false });
         i = hit.end + 1;
       } else {
         buf += cps[i];
@@ -189,7 +199,7 @@
         const hit = thirdParty.get(key);
         if (hit) {
           if (buf) { out.push({ type: 'text', value: buf }); buf = ''; }
-          out.push({ type: 'emote', url: hit.url, code: key, zw: hit.zw });
+          out.push({ type: 'emote', urls: [hit.url], code: key, zw: hit.zw });
         } else {
           buf += tok;
         }
@@ -222,10 +232,15 @@
   function makeImg(seg) {
     const img = document.createElement('img');
     img.className = 'emote';
-    img.src = proxied(seg.url);
+    let next = 0;
     img.alt = seg.code;
     img.title = seg.code;
-    img.onerror = () => img.replaceWith(document.createTextNode(seg.code));
+    img.src = proxied(seg.urls[next]);
+    img.onerror = () => {
+      next++;
+      if (next < seg.urls.length) img.src = proxied(seg.urls[next]);
+      else img.replaceWith(document.createTextNode(seg.code));
+    };
     return img;
   }
 

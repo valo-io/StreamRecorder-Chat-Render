@@ -15,6 +15,9 @@ import webbrowser
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 CACHE_DIR = os.path.join(HERE, '.cache')
+VIDEO_CHUNK = 8 * 1024 * 1024   # max bytes sent for a range request that has no explicit end
+NEGATIVE_STATUSES = {403, 404, 410}  # upstream answers that are cached too, so they aren't re-requested
+CLIENT_GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 ALLOWED_PROXY_HOSTS = {
     '7tv.io',
@@ -80,39 +83,55 @@ def read_cache(url):
         meta = json.load(f)
     with open(body_p, 'rb') as f:
         body = f.read()
-    return meta.get('content_type', 'application/octet-stream'), body
+    return meta.get('status', 200), meta.get('content_type', 'application/octet-stream'), body
 
 
-def write_cache(url, ctype, body):
+def write_cache(url, status, ctype, body):
     folder, body_p, meta_p = cache_paths(url)
     os.makedirs(folder, exist_ok=True)
     with open(body_p + '.tmp', 'wb') as f:
         f.write(body)
     os.replace(body_p + '.tmp', body_p)
     with open(meta_p + '.tmp', 'w', encoding='utf-8') as f:
-        json.dump({'url': url, 'content_type': ctype}, f)
+        json.dump({'url': url, 'status': status, 'content_type': ctype}, f)
     os.replace(meta_p + '.tmp', meta_p)
 
 
 def cached_fetch(url):
-    """Returns (content_type, body, was_cache_hit). Only successful responses are cached."""
+    """Returns (status, content_type, body, was_cache_hit).
+    Successful and negative (404 etc.) answers are cached; transient failures are not."""
     hit = read_cache(url)
     if hit:
-        return hit[0], hit[1], True
+        return hit[0], hit[1], hit[2], True
     with _key_lock(url):
         hit = read_cache(url)  # another thread may have just filled it
         if hit:
-            return hit[0], hit[1], True
-        ctype, body = fetch_upstream(url)
-        write_cache(url, ctype, body)
-        return ctype, body, False
+            return hit[0], hit[1], hit[2], True
+        try:
+            ctype, body = fetch_upstream(url)
+            status = 200
+        except urllib.error.HTTPError as e:
+            if e.code not in NEGATIVE_STATUSES:
+                raise
+            status, ctype, body = e.code, 'text/plain', b''
+        write_cache(url, status, ctype, body)
+        return status, ctype, body, False
 
 
 # ---------- HTTP handler ----------
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'  # keep-alive, so the video doesn't reconnect for every range read
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=HERE, **kwargs)
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except CLIENT_GONE:
+            # browser cancelled a request (normal when seeking the video)
+            self.close_connection = True
 
     def log_message(self, fmt, *args):
         pass
@@ -138,14 +157,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(403, 'Host not allowed')
             return
         try:
-            ctype, body, hit = cached_fetch(target)
-        except urllib.error.HTTPError as e:
-            print(f'[proxy] {target} -> HTTP {e.code}', file=sys.stderr)
-            self.send_error(e.code, f'Upstream returned HTTP {e.code}')
-            return
+            status, ctype, body, hit = cached_fetch(target)
         except Exception as e:
             print(f'[proxy] {target} -> {e}', file=sys.stderr)
             self.send_error(502, f'Upstream request failed: {e}')
+            return
+        if status != 200:
+            if not hit:
+                print(f'[proxy] {target} -> HTTP {status} (cached)', file=sys.stderr)
+            self.send_error(status, f'Upstream returned HTTP {status}')
             return
         self.send_response(200)
         self.send_header('Content-Type', ctype)
@@ -164,6 +184,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if rng and rng.startswith('bytes='):
             spec = rng[6:].split(',')[0].strip()
             s, _, e = spec.partition('-')
+            explicit_end = False
             try:
                 if s == '':
                     start = max(0, size - int(e))
@@ -171,6 +192,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     start = int(s)
                     if e:
                         end = min(int(e), size - 1)
+                        explicit_end = True
             except ValueError:
                 start = 0
             if start > end or start >= size:
@@ -178,6 +200,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-Range', f'bytes */{size}')
                 self.end_headers()
                 return
+            if not explicit_end:
+                # open-ended "bytes=X-" request: send a chunk, the browser asks again as needed
+                end = min(end, start + VIDEO_CHUNK - 1)
             status = 206
 
         length = end - start + 1
@@ -199,8 +224,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        except CLIENT_GONE:
+            self.close_connection = True
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
