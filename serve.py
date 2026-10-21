@@ -1,4 +1,6 @@
+import hashlib
 import http.server
+import json
 import mimetypes
 import os
 import socketserver
@@ -11,10 +13,22 @@ import urllib.request
 import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ALLOWED_PROXY_HOSTS = {'7tv.io', 'api.betterttv.net', 'decapi.me'}
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+CACHE_DIR = os.path.join(HERE, '.cache')
+
+ALLOWED_PROXY_HOSTS = {
+    '7tv.io',
+    'cdn.7tv.app',
+    'api.betterttv.net',
+    'cdn.betterttv.net',
+    'static-cdn.jtvnw.net',
+    'decapi.me',
+}
 UPSTREAM_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
                '(KHTML, like Gecko) Chrome/124.0 Safari/537.36')
 
+
+# ---------- upstream fetch ----------
 
 def fetch_upstream(target):
     last_err = None
@@ -22,10 +36,10 @@ def fetch_upstream(target):
         try:
             req = urllib.request.Request(target, headers={
                 'User-Agent': UPSTREAM_UA,
-                'Accept': 'application/json, text/plain, */*',
+                'Accept': 'application/json, image/*, */*',
             })
             with urllib.request.urlopen(req, timeout=20) as r:
-                return r.headers.get('Content-Type', 'application/json'), r.read()
+                return r.headers.get('Content-Type', 'application/octet-stream'), r.read()
         except urllib.error.HTTPError as e:
             last_err = e
             if e.code < 500 and e.code != 429:
@@ -34,8 +48,67 @@ def fetch_upstream(target):
             last_err = e
         time.sleep(1.5 * (attempt + 1))
     raise last_err
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 
+
+# ---------- disk cache ----------
+# Layout: .cache/<host>/<sha256 of full URL>.bin  (response body)
+#                       <sha256 of full URL>.meta.json (original URL + content type)
+# Hashing the full URL means two different emotes that share a name never collide,
+# and the per-host subfolders keep providers separated.
+
+_key_locks = {}
+_key_locks_guard = threading.Lock()
+
+
+def _key_lock(url):
+    with _key_locks_guard:
+        return _key_locks.setdefault(url, threading.Lock())
+
+
+def cache_paths(url):
+    host = urllib.parse.urlsplit(url).hostname or 'unknown'
+    digest = hashlib.sha256(url.encode('utf-8')).hexdigest()
+    folder = os.path.join(CACHE_DIR, host)
+    return folder, os.path.join(folder, digest + '.bin'), os.path.join(folder, digest + '.meta.json')
+
+
+def read_cache(url):
+    _, body_p, meta_p = cache_paths(url)
+    if not (os.path.isfile(body_p) and os.path.isfile(meta_p)):
+        return None
+    with open(meta_p, 'r', encoding='utf-8') as f:
+        meta = json.load(f)
+    with open(body_p, 'rb') as f:
+        body = f.read()
+    return meta.get('content_type', 'application/octet-stream'), body
+
+
+def write_cache(url, ctype, body):
+    folder, body_p, meta_p = cache_paths(url)
+    os.makedirs(folder, exist_ok=True)
+    with open(body_p + '.tmp', 'wb') as f:
+        f.write(body)
+    os.replace(body_p + '.tmp', body_p)
+    with open(meta_p + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump({'url': url, 'content_type': ctype}, f)
+    os.replace(meta_p + '.tmp', meta_p)
+
+
+def cached_fetch(url):
+    """Returns (content_type, body, was_cache_hit). Only successful responses are cached."""
+    hit = read_cache(url)
+    if hit:
+        return hit[0], hit[1], True
+    with _key_lock(url):
+        hit = read_cache(url)  # another thread may have just filled it
+        if hit:
+            return hit[0], hit[1], True
+        ctype, body = fetch_upstream(url)
+        write_cache(url, ctype, body)
+        return ctype, body, False
+
+
+# ---------- HTTP handler ----------
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -65,7 +138,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(403, 'Host not allowed')
             return
         try:
-            ctype, body = fetch_upstream(target)
+            ctype, body, hit = cached_fetch(target)
         except urllib.error.HTTPError as e:
             print(f'[proxy] {target} -> HTTP {e.code}', file=sys.stderr)
             self.send_error(e.code, f'Upstream returned HTTP {e.code}')
@@ -77,6 +150,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
+        self.send_header('X-Cache', 'HIT' if hit else 'MISS')
         self.end_headers()
         self.wfile.write(body)
 
@@ -137,6 +211,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 if __name__ == '__main__':
     url = f'http://localhost:{PORT}/index.html'
     print(f'VOD chat replay running at {url}')
+    print(f'Cache folder: {CACHE_DIR}')
     print('Press Ctrl+C to stop.')
     threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     with Server(('127.0.0.1', PORT), Handler) as httpd:

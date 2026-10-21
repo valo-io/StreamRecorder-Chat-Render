@@ -5,7 +5,6 @@
   const statusEl = $('status');
 
   const LS_KEY = 'vodChatReplay.paths';
-  const CACHE_PREFIX = 'vodChatReplay.emotes.';
   const NAME_COLORS = { default: '#000000', mod: '#006b2d', vip: '#7a1fa2' };
   const WINDOW = 120;      // messages rebuilt around a seek
   const MAX_NODES = 400;   // hard safety cap on DOM nodes
@@ -127,26 +126,11 @@
     return { list, errors };
   }
 
-  // Fresh list from the APIs; if some providers failed, top up from the last saved list
-  // (this acts as an offline fallback, similar to an on-disk emote cache).
+  // Responses are cached by serve.py, so repeat runs work offline.
   async function loadThirdPartyEmotes(twitchId) {
-    const cacheKey = CACHE_PREFIX + twitchId;
-    let cached = [];
-    try {
-      cached = JSON.parse(localStorage.getItem(cacheKey) || '{"list":[]}').list || [];
-    } catch (_) { cached = []; }
-
-    const { list: fresh, errors } = await fetchThirdPartyList(twitchId);
-    const seen = new Set(fresh.map((e) => e.code));
-    const merged = [...fresh];
-    for (const e of cached) if (!seen.has(e.code)) { seen.add(e.code); merged.push(e); }
-
-    if (merged.length) {
-      try { localStorage.setItem(cacheKey, JSON.stringify({ list: merged })); } catch (_) { /* quota */ }
-    }
-
-    thirdParty = new Map(merged.map((e) => [e.code, { url: e.url, zw: e.zw }]));
-    return { fresh: fresh.length, fromCache: merged.length - fresh.length, errors };
+    const { list, errors } = await fetchThirdPartyList(twitchId);
+    thirdParty = new Map(list.map((e) => [e.code, { url: e.url, zw: e.zw }]));
+    return { errors };
   }
 
   // ---------- chat parsing ----------
@@ -238,7 +222,7 @@
   function makeImg(seg) {
     const img = document.createElement('img');
     img.className = 'emote';
-    img.src = seg.url;
+    img.src = proxied(seg.url);
     img.alt = seg.code;
     img.title = seg.code;
     img.onerror = () => img.replaceWith(document.createTextNode(seg.code));
@@ -380,7 +364,7 @@
       }
 
       setStatus('Loading BetterTTV / 7TV emotes...');
-      let info = { fresh: 0, fromCache: 0, errors: [] };
+      let info = { errors: [] };
       if (roomId) info = await loadThirdPartyEmotes(roomId);
 
       if (token !== loadToken) return; // a newer load superseded this one
@@ -394,7 +378,7 @@
       video.src = localUrl(vodPath);
       video.load();
 
-      let msg = `${messages.length} messages | ${thirdParty.size} BTTV/7TV emotes (${info.fresh} live, ${info.fromCache} from cache)`;
+      let msg = `${messages.length} messages | ${thirdParty.size} BTTV/7TV emotes`;
       if (info.errors.length) msg += ' | failed: ' + info.errors.join('; ');
       setStatus(msg, info.errors.length > 0 && thirdParty.size === 0);
       sync(true);
