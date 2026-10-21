@@ -135,3 +135,12 @@ main {
 /* Plyr wrapper fills the player area */
 #playerWrap .plyr { width: 100%; height: 100%; }
 #playerWrap .plyr video { object-fit: contain; }
+
+/* file pickers: the browser shows the chosen file name next to its button */
+.file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}

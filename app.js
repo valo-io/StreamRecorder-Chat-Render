@@ -11,7 +11,8 @@
   const chat = $('chat');
   const statusEl = $('status');
 
-  const LS_KEY = 'vodChatReplay.paths';
+  const LS_KEY = 'vodChatReplay.channel';
+  let currentVodUrl = null;   // blob URL of the loaded VOD, revoked when replaced
   const NAME_COLORS = { default: '#000000', mod: '#006b2d', vip: '#7a1fa2' };
   const WINDOW = 120;      // messages rebuilt around a seek
   const MAX_NODES = 400;   // hard safety cap on DOM nodes
@@ -35,14 +36,6 @@
   function setStatus(msg, isErr = false) {
     statusEl.textContent = msg;
     statusEl.className = isErr ? 'err' : '';
-  }
-
-  function cleanPath(p) {
-    return p.trim().replace(/^["']|["']$/g, '');
-  }
-
-  function localUrl(p) {
-    return '/local?path=' + encodeURIComponent(p);
   }
 
   // External APIs go through serve.py (/proxy) to avoid browser CORS blocks.
@@ -356,20 +349,20 @@
   // ---------- load ----------
 
   async function load() {
-    const vodPath = cleanPath($('vodPath').value);
-    const jsonPath = cleanPath($('jsonPath').value);
+    const vodFile = $('vodFile').files[0];
+    const jsonFile = $('jsonFile').files[0];
     const channelUrl = $('channelUrl').value;
 
-    if (!vodPath || !jsonPath) {
-      setStatus('Enter both the VOD path and the chat JSON path.', true);
+    if (!vodFile || !jsonFile) {
+      setStatus('Choose both the VOD file and the chat JSON file.', true);
       return;
     }
-    localStorage.setItem(LS_KEY, JSON.stringify({ vodPath, jsonPath, channelUrl }));
+    localStorage.setItem(LS_KEY, JSON.stringify({ channelUrl }));
 
     const token = ++loadToken;
     try {
       setStatus('Loading chat JSON...');
-      const raw = await fetchJson(localUrl(jsonPath));
+      const raw = JSON.parse(await jsonFile.text());
       if (!Array.isArray(raw)) throw new Error('Chat JSON is not an array of messages.');
 
       const login = parseChannel(channelUrl);
@@ -390,7 +383,10 @@
       lastSyncT = -1;
       $('chatHeader').textContent = 'Chat replay' + (login ? ` - ${login}` : '');
 
-      video.src = localUrl(vodPath);
+      // read the VOD straight from disk through the browser (no server in the video path)
+      if (currentVodUrl) URL.revokeObjectURL(currentVodUrl);
+      currentVodUrl = URL.createObjectURL(vodFile);
+      video.src = currentVodUrl;
       video.load();
 
       let msg = `${messages.length} messages | ${thirdParty.size} BTTV/7TV emotes`;
@@ -411,15 +407,13 @@
 
   $('loadBtn').addEventListener('click', load);
   $('offsetMs').addEventListener('input', () => sync(true));
-  for (const id of ['vodPath', 'jsonPath', 'channelUrl']) {
+  for (const id of ['channelUrl']) {
     $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') load(); });
   }
 
   try {
     const saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
     if (saved) {
-      $('vodPath').value = saved.vodPath || '';
-      $('jsonPath').value = saved.jsonPath || '';
       $('channelUrl').value = saved.channelUrl || '';
     }
   } catch (_) { /* ignore */ }
