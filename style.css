@@ -1,3 +1,5 @@
+/* ---------- base ---------- */
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -10,6 +12,8 @@ html, body {
 
 body { display: flex; flex-direction: column; }
 
+/* ---------- top bar ---------- */
+
 #top {
   display: flex;
   flex-wrap: wrap;
@@ -19,13 +23,24 @@ body { display: flex; flex-direction: column; }
   background: #1f1f23;
 }
 
-#top input {
+#top label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+#channelUrl {
   flex: 1;
   min-width: 180px;
   padding: 5px 8px;
 }
 
-#top input#channelUrl { flex: 0.7; }
+#offsetMs {
+  width: 9.5em;
+  padding: 5px 8px;
+}
 
 #top button {
   padding: 6px 14px;
@@ -40,6 +55,8 @@ body { display: flex; flex-direction: column; }
 
 #status.err { color: #ff7b7b; }
 
+/* ---------- player + chat layout ---------- */
+
 main {
   flex: 1;
   display: flex;
@@ -53,12 +70,16 @@ main {
   background: #000;
 }
 
+#playerWrap .plyr { width: 100%; height: 100%; }
+
 #video {
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #000;
 }
+
+/* ---------- chat sidebar ---------- */
 
 #sidebar {
   width: 340px;
@@ -77,7 +98,7 @@ main {
   border-bottom: 1px solid #ddd;
 }
 
-/* newest message sits at the bottom, older ones are pushed up and clipped */
+/* newest message sits at the bottom; older ones are pushed up and clipped */
 #chat {
   flex: 1;
   min-height: 0;
@@ -93,7 +114,7 @@ main {
   font-size: 14px;
   line-height: 1.5;
   padding: 2px 0;
-  word-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .name { font-weight: bold; }
@@ -103,7 +124,7 @@ main {
   vertical-align: middle;
 }
 
-/* emote box: zero-width emotes are overlaid on the previous emote */
+/* zero-width emotes are absolutely positioned over the emote before them */
 .emote-box {
   position: relative;
   display: inline-block;
@@ -111,36 +132,8 @@ main {
   vertical-align: middle;
 }
 
-.emote-box .emote { height: 28px; }
-
 .emote-box .emote.zw {
   position: absolute;
   left: 0;
   top: 0;
-}
-
-.offset {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.offset input {
-  width: 9.5em;
-  padding: 5px 8px;
-}
-
-/* Plyr wrapper fills the player area */
-#playerWrap .plyr { width: 100%; height: 100%; }
-#playerWrap .plyr video { object-fit: contain; }
-
-/* file pickers: the browser shows the chosen file name next to its button */
-.file {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  white-space: nowrap;
 }
